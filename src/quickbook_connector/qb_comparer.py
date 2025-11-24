@@ -1,30 +1,26 @@
 """
 Item list comparison module with dynamic Excel header detection,
-QuickBooks linking, conflict detection, and CSV/JSON export.
-
-ADDED AS REQUESTED BY USER:
--------------------------------------------------------------
-This file now includes a demonstration block showing:
-
-1. Code structure (comparer.py functions)
-2. Example QuickBooks data expectations
-3. Example Excel data expectations
-4. Steps for manual execution
-5. Confirmation that "Excel-only" items should appear in QuickBooks
-6. Location of output JSON after running
--------------------------------------------------------------
+QuickBooks linking, conflict detection, unified 'data_mismatch'
+classification, CSV/JSON export with full field coverage,
+JSON reporting of number of perfectly matching items,
+and new items to be added (and pushed to QuickBooks).
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, asdict
-from typing import List, Dict
+from dataclasses import dataclass
+from typing import List
 from pathlib import Path
 from openpyxl import load_workbook
 import csv
 import json
+from datetime import datetime, timezone
 
 # Import your QuickBooks gateway
-from quickbook_connector.qb_gateway import fetch_quickbooks_inventory
+from quickbook_connector.qb_gateway import (
+    fetch_quickbooks_inventory,
+    add_items_to_quickbooks,
+)
+from quickbook_connector.models import InventoryItem
 
 
 # ----------------------------------------------------------------------
@@ -40,8 +36,9 @@ class Item:
 @dataclass
 class Conflict:
     id: str
-    source1: Item
-    source2: Item
+    source1: Item | None  # QB record
+    source2: Item | None  # Excel record
+    mismatched_fields: List[str]
 
 
 @dataclass
@@ -52,6 +49,7 @@ class ComparisonReport:
     source1_only: List[Item]
     source2_only: List[Item]
     conflicts: List[Conflict]
+    add_new_items: List[Item]  # Excel-only items to add to QB
 
 
 # ----------------------------------------------------------------------
@@ -129,30 +127,48 @@ def read_items_from_excel(path: Path) -> List[Item]:
 
 
 # ----------------------------------------------------------------------
-# COMPARISON LOGIC
+# COMPARISON LOGIC (FILTERED FOR SAME-ID CONFLICTS + new items)
 # ----------------------------------------------------------------------
 def compare_item_lists(list1: List[Item], list2: List[Item]) -> ComparisonReport:
-    map1 = {item.id: item for item in list1}
-    map2 = {item.id: item for item in list2}
+    map1 = {item.id: item for item in list1}  # QuickBooks
+    map2 = {item.id: item for item in list2}  # Excel
 
     matching = []
     only_1 = []
     only_2 = []
     conflicts = []
+    new_items: List[Item] = []
 
+    # Compare items for conflicts or matches
     for item_id, item1 in map1.items():
         item2 = map2.get(item_id)
         if item2:
-            if item1.name == item2.name and item1.price == item2.price:
+            mismatches = []
+
+            if item1.name != item2.name:
+                mismatches.append("Name")
+            if float(item1.price) != float(item2.price):
+                mismatches.append("Price")
+
+            if not mismatches:
                 matching.append(item1)
             else:
-                conflicts.append(Conflict(id=item_id, source1=item1, source2=item2))
+                conflicts.append(
+                    Conflict(
+                        id=item_id,
+                        source1=item1,
+                        source2=item2,
+                        mismatched_fields=mismatches,
+                    )
+                )
         else:
             only_1.append(item1)
 
+    # Detect Excel-only items as new items to be added
     for item_id, item2 in map2.items():
         if item_id not in map1:
             only_2.append(item2)
+            new_items.append(item2)
 
     return ComparisonReport(
         total_source1=len(list1),
@@ -161,6 +177,7 @@ def compare_item_lists(list1: List[Item], list2: List[Item]) -> ComparisonReport
         source1_only=only_1,
         source2_only=only_2,
         conflicts=conflicts,
+        add_new_items=new_items,
     )
 
 
@@ -171,37 +188,119 @@ def write_conflicts_to_csv(conflicts: List[Conflict], path: Path) -> None:
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(
-            ["ID", "QuickBooks_Name", "QuickBooks_Price", "Excel_Name", "Excel_Price"]
+            [
+                "ID",
+                "QB_Name",
+                "QB_Price",
+                "Excel_Name",
+                "Excel_Price",
+                "Fields_With_Mismatch",
+            ]
         )
+
         for c in conflicts:
             writer.writerow(
                 [
                     c.id,
-                    c.source1.name,
-                    c.source1.price,
-                    c.source2.name,
-                    c.source2.price,
+                    c.source1.name if c.source1 else None,
+                    c.source1.price if c.source1 else None,
+                    c.source2.name if c.source2 else None,
+                    c.source2.price if c.source2 else None,
+                    ", ".join(c.mismatched_fields),
                 ]
             )
+
     print(f"CSV conflict file created: {path}")
 
 
 # ----------------------------------------------------------------------
-# JSON EXPORT
+# JSON EXPORT (same-ID conflicts + QB-only items + matching count + new items)
 # ----------------------------------------------------------------------
-def write_conflicts_to_json(conflicts: List[Conflict], path: Path) -> None:
-    data = []
-    for c in conflicts:
-        data.append(
+# ----------------------------------------------------------------------
+# JSON EXPORT (same-ID conflicts + QB-only items + matching count + new items)
+# ----------------------------------------------------------------------
+def write_conflicts_to_json(report: ComparisonReport, path: Path) -> None:
+    """
+    - remove qb_ID and excel_ID
+    - remove fields_with_mismatch
+    - use reason 'data_mismatch' for value differences
+    - use reason 'missing_in_excel' for items only in QuickBooks
+    - also include items only in QuickBooks in 'conflicts'
+    """
+    json_output = {
+        "status": "success",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "same_items": report.matching_items,
+        "conflicts": [],
+        "add_new_items": [],
+        "error": None,
+    }
+
+    # 1) Same-ID conflicts (QB + Excel both present → true data mismatch)
+    for c in report.conflicts:
+        if c.source1 and c.source2:
+            json_output["conflicts"].append(
+                {
+                    "record_id": c.id,
+                    "qb_name": c.source1.name,
+                    "excel_name": c.source2.name,
+                    "qb_price": c.source1.price,
+                    "excel_price": c.source2.price,
+                    "reason": "data_mismatch",
+                }
+            )
+
+    # 2) Items only in QuickBooks (Excel side is missing)
+    for item in report.source1_only:
+        json_output["conflicts"].append(
             {
-                "id": c.id,
-                "quickbooks": asdict(c.source1),
-                "excel": asdict(c.source2),
+                "record_id": item.id,
+                "qb_name": item.name,
+                "excel_name": None,
+                "qb_price": item.price,
+                "excel_price": None,
+                "reason": "missing_in_excel",
             }
         )
+
+    # 3) New items from Excel (unchanged)
+    for item in report.add_new_items:
+        json_output["add_new_items"].append(
+            {
+                "id": item.id,
+                "name": item.name,
+                "price": item.price,
+            }
+        )
+
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
+        json.dump(json_output, f, indent=4)
+
     print(f"JSON conflict file created: {path}")
+
+
+# ----------------------------------------------------------------------
+# PUSH NEW ITEMS INTO QUICKBOOKS
+# ----------------------------------------------------------------------
+def push_new_items_to_quickbooks(report: ComparisonReport) -> None:
+    """Convert Excel-only items to InventoryItem and add them to QuickBooks."""
+    if not report.add_new_items:
+        print("No Excel-only items to add to QuickBooks.")
+        return
+
+    qb_items: List[InventoryItem] = []
+    for item in report.add_new_items:
+        qb_items.append(
+            InventoryItem(
+                record_id=item.id,
+                name=item.name,
+                price=float(item.price),
+                source="excel",
+            )
+        )
+
+    print(f"\nAdding {len(qb_items)} new Excel items to QuickBooks...")
+    add_items_to_quickbooks(qb_items)
 
 
 # ----------------------------------------------------------------------
@@ -212,7 +311,8 @@ def print_report(report: ComparisonReport) -> None:
     print(f"Total Items in QuickBooks: {report.total_source1}")
     print(f"Total Items in Excel: {report.total_source2}")
     print(f"Matching Items: {report.matching_items}")
-    print(f"Conflicts: {len(report.conflicts)}\n")
+    print(f"Conflicts: {len(report.conflicts)}")
+    print(f"New Items to Add: {len(report.add_new_items)}\n")
 
     print("Items only in QuickBooks:")
     if report.source1_only:
@@ -231,68 +331,34 @@ def print_report(report: ComparisonReport) -> None:
     print("\nConflicts:")
     if report.conflicts:
         for c in report.conflicts:
-            print(f" - {c.id}:")
-            print(f"      QuickBooks → {c.source1.name} (${c.source1.price})")
-            print(f"      Excel      → {c.source2.name} (${c.source2.price})")
+            print(f" - {c.id}: mismatch in {', '.join(c.mismatched_fields)}")
+    else:
+        print(" - None")
+
+    print("\nNew Items to Add:")
+    if report.add_new_items:
+        for item in report.add_new_items:
+            print(f" - {item.id}: {item.name} (price={item.price})")
     else:
         print(" - None")
 
 
 # ----------------------------------------------------------------------
-# MAIN (with DEMONSTRATION BLOCK added)
+# MAIN
 # ----------------------------------------------------------------------
 if __name__ == "__main__":
-    print("\n-------------------------------------------------------")
-    print("COMPARE.PY STRUCTURE LOADED                    ")
-    print("Functions available:")
-    print(" - fetch_items_from_quickbooks_linked()")
-    print(" - read_items_from_excel()")
-    print(" - compare_item_lists()")
-    print(" - print_report()")
-    print(" - write_conflicts_to_csv/json()")
-    print("-------------------------------------------------------\n")
-
-    print("EXPECTED QUICKBOOKS TEST DATA:")
-    print("  ✓ One item that also exists in Excel (same ID, same data)")
-    print("  ✓ One item that does NOT exist in Excel")
-    print("  ✓ One item that exists in Excel but data differs\n")
-
-    print("EXPECTED EXCEL TEST DATA:")
-    print("  ✓ One item matching QB exactly")
-    print("  ✓ One Excel-only item")
-    print("  ✓ One conflicting item (same ID, different name/price)\n")
-
-    # Fill your actual Excel path here
     excel_path = Path(
         "C:/Users/PotharajuS/QB_Connector_Part_Python_Fall_2025/company_data.xlsx"
     )
 
-    # Read data
-    print("READING QUICKBOOKS DATA...\n")
     qb_items = fetch_items_from_quickbooks_linked()
-
-    print("READING EXCEL DATA...\n")
     excel_items = read_items_from_excel(excel_path)
 
-    # Compare
-    print("COMPARING DATA...\n")
     report = compare_item_lists(qb_items, excel_items)
     print_report(report)
 
-    print("\nEXPORTING CONFLICT FILES...\n")
-    if report.conflicts:
-        write_conflicts_to_csv(report.conflicts, Path("conflicts_output.csv"))
-        write_conflicts_to_json(report.conflicts, Path("conflicts_output.json"))
+    write_conflicts_to_csv(report.conflicts, Path("conflicts_output.csv"))
+    write_conflicts_to_json(report, Path("conflicts_output.json"))
 
-        print("\nJSON OUTPUT LOCATION:")
-        print("  → conflicts_output.json")
-        print("\nRun the file and open JSON to verify mismatches.\n")
-    else:
-        print("No conflicts found. JSON/CSV not created.\n")
-
-    print("\nAFTER RUNNING THIS SCRIPT:")
-    print("  ✓ Open QuickBooks")
-    print("  ✓ Check that Excel-only items have been added (if your process adds them)")
-    print("  ✓ Conflicts should appear ONLY in the JSON file\n")
-
-    print("DEMONSTRATION COMPLETE.\n")
+    # Add Excel-only items to QuickBooks
+    push_new_items_to_quickbooks(report)

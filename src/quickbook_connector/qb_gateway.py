@@ -13,9 +13,12 @@ except Exception:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 def _call_quickbooks(qbxml_request: str) -> str:
     if win32com is None:
-        raise RuntimeError("win32com is not available. Use Windows with pywin32 + QuickBooks Desktop.")
+        raise RuntimeError(
+            "win32com is not available. Use Windows with pywin32 + QuickBooks Desktop."
+        )
     rp = win32com.client.Dispatch("QBXMLRP2.RequestProcessor.2")
     app_name = "QB Inventory Gateway"
     try:
@@ -34,6 +37,7 @@ def _call_quickbooks(qbxml_request: str) -> str:
             pass
         raise RuntimeError(f"QuickBooks processing error: {exc}") from exc
 
+
 def _build_item_query_qbxml() -> str:
     return """<?xml version="1.0" encoding="utf-8"?>
 <?qbxml version="13.0"?>
@@ -45,6 +49,7 @@ def _build_item_query_qbxml() -> str:
   </QBXMLMsgsRq>
 </QBXML>
 """
+
 
 def _parse_items_from_qbxml(qbxml_response: str) -> List[dict]:
     root = ET.fromstring(qbxml_response)
@@ -58,17 +63,15 @@ def _parse_items_from_qbxml(qbxml_response: str) -> List[dict]:
             price = float(price_text) if price_text is not None else 0.0
         except ValueError:
             price = 0.0
-        items.append({
-            "record_id": record_id,
-            "name": name,
-            "price": price
-        })
+        items.append({"record_id": record_id, "name": name, "price": price})
     return items
+
 
 def fetch_quickbooks_inventory() -> List[dict]:
     qbxml_request = _build_item_query_qbxml()
     response_xml = _call_quickbooks(qbxml_request)
     return _parse_items_from_qbxml(response_xml)
+
 
 def _build_items_add_qbxml(items: List[InventoryItem]) -> str:
     msg_rq = ""
@@ -94,19 +97,22 @@ def _build_items_add_qbxml(items: List[InventoryItem]) -> str:
 </QBXML>
 """
 
-def add_items_to_quickbooks(new_items: List[InventoryItem]):
+
+def add_items_to_quickbooks(new_items: List[InventoryItem]) -> None:
     # Fetch current inventory to prevent duplicate IDs
     current_items = fetch_quickbooks_inventory()
-    current_by_id = {i['record_id'] for i in current_items}
+    current_by_id = {i["record_id"] for i in current_items}
     items_to_add = []
     for item in new_items:
         if item.record_id in current_by_id:
             print(f"Warning: '{item.record_id}' already exists—skipping '{item.name}'.")
         else:
             items_to_add.append(item)
+
     if not items_to_add:
         print("No new items to add.")
         return
+
     qbxml_request = _build_items_add_qbxml(items_to_add)
     response_xml = _call_quickbooks(qbxml_request)
     root = ET.fromstring(response_xml)
@@ -119,6 +125,7 @@ def add_items_to_quickbooks(new_items: List[InventoryItem]):
         else:
             print(f"Add Failed: {name} - {status_msg}")
 
+
 if __name__ == "__main__":
     print("Reading inventory from QuickBooks ...")
     try:
@@ -127,12 +134,19 @@ if __name__ == "__main__":
             print(f"{item['name']} (id={item['record_id']}, price={item['price']})")
     except Exception as e:
         print("Error while reading QuickBooks inventory:", e)
+
     print("\nAdding new inventory parts to QuickBooks ...")
     try:
         new_parts = [
-            InventoryItem(record_id="TEST03", name="Gadget", price=10.99, source="quickbooks"),
-            InventoryItem(record_id="TEST04", name="Bolt", price=13.20, source="quickbooks"),
-            InventoryItem(record_id="TEST06", name="Nail", price=14.69, source="quickbooks"),
+            InventoryItem(
+                record_id="TEST03", name="Gadget", price=10.99, source="quickbooks"
+            ),
+            InventoryItem(
+                record_id="TEST04", name="Bolt", price=13.20, source="quickbooks"
+            ),
+            InventoryItem(
+                record_id="TEST06", name="Nail", price=14.69, source="quickbooks"
+            ),
         ]
         add_items_to_quickbooks(new_parts)
     except Exception as e:

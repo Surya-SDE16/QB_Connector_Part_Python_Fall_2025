@@ -4,13 +4,14 @@ from typing import Literal
 
 SourceLiteral = Literal["excel", "quickbooks"]
 
+
 @dataclass(slots=True)
 class InventoryItem:
     """Represents an inventory item found in Excel or QuickBooks."""
 
-    record_id: str      # Unique ID of the inventory item
-    name: str           # Item name
-    price: float        # Item sales price
+    record_id: str  # Unique ID of the inventory item
+    name: str  # Item name
+    price: float  # Item sales price
     source: SourceLiteral  # 'excel' or 'quickbooks'
 
     def __str__(self) -> str:
@@ -22,5 +23,6 @@ class InventoryItem:
             f"price={self.price}, "
             f"source={self.source})"
         )
+
 
 __all__ = ["InventoryItem", "SourceLiteral"]
