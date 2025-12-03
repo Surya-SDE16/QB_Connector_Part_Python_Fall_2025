@@ -351,12 +351,15 @@ if __name__ == "__main__":
         "C:/Users/PotharajuS/QB_Connector_Part_Python_Fall_2025/company_data.xlsx"
     )
 
+    # Read QuickBooks and Excel data
     qb_items = fetch_items_from_quickbooks_linked()
     excel_items = read_items_from_excel(excel_path)
 
+    # Compare results
     report = compare_item_lists(qb_items, excel_items)
     print_report(report)
 
+    # Export output files
     write_conflicts_to_csv(report.conflicts, Path("conflicts_output.csv"))
     write_conflicts_to_json(report, Path("conflicts_output.json"))
 
