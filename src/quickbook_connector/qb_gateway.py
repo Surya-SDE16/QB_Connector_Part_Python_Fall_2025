@@ -20,7 +20,7 @@ def _call_quickbooks(qbxml_request: str) -> str:
             "win32com is not available. Use Windows with pywin32 + QuickBooks Desktop."
         )
     rp = win32com.client.Dispatch("QBXMLRP2.RequestProcessor.2")
-    app_name = "QB Inventory Gateway"
+    app_name = "Quickbooks Connector"
     try:
         rp.OpenConnection2("", app_name, 1)
         ticket = rp.BeginSession("", 0)

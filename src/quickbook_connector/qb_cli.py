@@ -3,7 +3,7 @@ Command-line interface for the QuickBooks Item/Parts comparer.
 
 This module provides the entry point for running the item comparison tool
 from the command line. It runs the comparison against QuickBooks Desktop,
-and prints where the JSON/CSV reports were written.
+and prints where the JSON reports were written.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from .qb_comparer import (
     read_items_from_excel,
     compare_item_lists,
     print_report,
-    write_conflicts_to_csv,
     write_conflicts_to_json,
     push_new_items_to_quickbooks,
 )
@@ -32,7 +31,6 @@ def main() -> int:
         return 1
 
     # Output paths
-    csv_out_path = Path("conflicts_output.csv")
     json_out_path = Path("conflicts_output.json")
 
     # Load data
@@ -44,13 +42,11 @@ def main() -> int:
     print_report(report)
 
     # Export outputs
-    write_conflicts_to_csv(report.conflicts, csv_out_path)
     write_conflicts_to_json(report, json_out_path)
 
     # Push Excel-only items into QuickBooks
     push_new_items_to_quickbooks(report)
 
-    print(f"\nCSV report written to: {csv_out_path}")
     print(f"JSON report written to: {json_out_path}")
 
     return 0

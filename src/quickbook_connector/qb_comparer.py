@@ -1,7 +1,7 @@
 """
 Item list comparison module with dynamic Excel header detection,
 QuickBooks linking, conflict detection, unified 'data_mismatch'
-classification, CSV/JSON export with full field coverage,
+classification, JSON export with full field coverage,
 JSON reporting of number of perfectly matching items,
 and new items to be added (and pushed to QuickBooks).
 """
@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from typing import List
 from pathlib import Path
 from openpyxl import load_workbook
-import csv
 import json
 from datetime import datetime, timezone
 
@@ -182,41 +181,6 @@ def compare_item_lists(list1: List[Item], list2: List[Item]) -> ComparisonReport
 
 
 # ----------------------------------------------------------------------
-# CSV EXPORT
-# ----------------------------------------------------------------------
-def write_conflicts_to_csv(conflicts: List[Conflict], path: Path) -> None:
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            [
-                "ID",
-                "QB_Name",
-                "QB_Price",
-                "Excel_Name",
-                "Excel_Price",
-                "Fields_With_Mismatch",
-            ]
-        )
-
-        for c in conflicts:
-            writer.writerow(
-                [
-                    c.id,
-                    c.source1.name if c.source1 else None,
-                    c.source1.price if c.source1 else None,
-                    c.source2.name if c.source2 else None,
-                    c.source2.price if c.source2 else None,
-                    ", ".join(c.mismatched_fields),
-                ]
-            )
-
-    print(f"CSV conflict file created: {path}")
-
-
-# ----------------------------------------------------------------------
-# JSON EXPORT (same-ID conflicts + QB-only items + matching count + new items)
-# ----------------------------------------------------------------------
-# ----------------------------------------------------------------------
 # JSON EXPORT (same-ID conflicts + QB-only items + matching count + new items)
 # ----------------------------------------------------------------------
 def write_conflicts_to_json(report: ComparisonReport, path: Path) -> None:
@@ -359,8 +323,7 @@ if __name__ == "__main__":
     report = compare_item_lists(qb_items, excel_items)
     print_report(report)
 
-    # Export output files
-    write_conflicts_to_csv(report.conflicts, Path("conflicts_output.csv"))
+    # Export JSON output file
     write_conflicts_to_json(report, Path("conflicts_output.json"))
 
     # Add Excel-only items to QuickBooks
