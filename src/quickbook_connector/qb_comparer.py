@@ -8,11 +8,12 @@ and new items to be added (and pushed to QuickBooks).
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import List
+from typing import Optional
 from pathlib import Path
 from openpyxl import load_workbook
 import json
 from datetime import datetime, timezone
+from typing import Any, Dict
 
 # Import your QuickBooks gateway
 from quickbook_connector.qb_gateway import (
@@ -35,9 +36,9 @@ class Item:
 @dataclass
 class Conflict:
     id: str
-    source1: Item | None  # QB record
-    source2: Item | None  # Excel record
-    mismatched_fields: List[str]
+    source1: Optional[Item]  # QB record
+    source2: Optional[Item]  # Excel record
+    mismatched_fields: list[str]
 
 
 @dataclass
@@ -45,19 +46,19 @@ class ComparisonReport:
     total_source1: int
     total_source2: int
     matching_items: int
-    source1_only: List[Item]
-    source2_only: List[Item]
-    conflicts: List[Conflict]
-    add_new_items: List[Item]  # Excel-only items to add to QB
+    source1_only: list[Item]
+    source2_only: list[Item]
+    conflicts: list[Conflict]
+    add_new_items: list[Item]  # Excel-only items to add to QB
 
 
 # ----------------------------------------------------------------------
 # QUICKBOOKS READER
 # ----------------------------------------------------------------------
-def fetch_items_from_quickbooks_linked() -> List[Item]:
+def fetch_items_from_quickbooks_linked() -> list[Item]:
     qb_items = fetch_quickbooks_inventory()  # returns list of dicts
 
-    items: List[Item] = []
+    items: list[Item] = []
     for entry in qb_items:
         items.append(
             Item(
@@ -72,7 +73,7 @@ def fetch_items_from_quickbooks_linked() -> List[Item]:
 # ----------------------------------------------------------------------
 # EXCEL HEADER MAPPING
 # ----------------------------------------------------------------------
-def detect_column(headers: List[str], possible_names: List[str]) -> int | None:
+def detect_column(headers: list[str], possible_names: list[str]) -> Optional[int]:
     """Return the index of the first matching header, case-insensitive."""
     headers_lower = [h.lower() if h else "" for h in headers]
     for idx, header in enumerate(headers_lower):
@@ -85,7 +86,7 @@ def detect_column(headers: List[str], possible_names: List[str]) -> int | None:
 # ----------------------------------------------------------------------
 # ROBUST EXCEL READER
 # ----------------------------------------------------------------------
-def read_items_from_excel(path: Path) -> List[Item]:
+def read_items_from_excel(path: Path) -> list[Item]:
     workbook = load_workbook(path, data_only=True)
     sheet = workbook.active
 
@@ -103,7 +104,7 @@ def read_items_from_excel(path: Path) -> List[Item]:
     if id_idx is None or name_idx is None:
         raise ValueError("Could not detect required 'ID' or 'Name' columns in Excel")
 
-    items: List[Item] = []
+    items: list[Item] = []
 
     for row in rows:
         item_id = row[id_idx] if id_idx < len(row) else None
@@ -126,23 +127,23 @@ def read_items_from_excel(path: Path) -> List[Item]:
 
 
 # ----------------------------------------------------------------------
-# COMPARISON LOGIC (FILTERED FOR SAME-ID CONFLICTS + new items)
+# COMPARISON LOGIC
 # ----------------------------------------------------------------------
-def compare_item_lists(list1: List[Item], list2: List[Item]) -> ComparisonReport:
+def compare_item_lists(list1: list[Item], list2: list[Item]) -> ComparisonReport:
     map1 = {item.id: item for item in list1}  # QuickBooks
     map2 = {item.id: item for item in list2}  # Excel
 
-    matching = []
-    only_1 = []
-    only_2 = []
-    conflicts = []
-    new_items: List[Item] = []
+    matching: list[Item] = []
+    only_1: list[Item] = []
+    only_2: list[Item] = []
+    conflicts: list[Conflict] = []
+    new_items: list[Item] = []
 
     # Compare items for conflicts or matches
     for item_id, item1 in map1.items():
         item2 = map2.get(item_id)
         if item2:
-            mismatches = []
+            mismatches: list[str] = []
 
             if item1.name != item2.name:
                 mismatches.append("Name")
@@ -181,17 +182,12 @@ def compare_item_lists(list1: List[Item], list2: List[Item]) -> ComparisonReport
 
 
 # ----------------------------------------------------------------------
-# JSON EXPORT (same-ID conflicts + QB-only items + matching count + new items)
+# JSON EXPORT
 # ----------------------------------------------------------------------
+
+
 def write_conflicts_to_json(report: ComparisonReport, path: Path) -> None:
-    """
-    - remove qb_ID and excel_ID
-    - remove fields_with_mismatch
-    - use reason 'data_mismatch' for value differences
-    - use reason 'missing_in_excel' for items only in QuickBooks
-    - also include items only in QuickBooks in 'conflicts'
-    """
-    json_output = {
+    json_output: Dict[str, Any] = {
         "status": "success",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "same_items": report.matching_items,
@@ -200,7 +196,7 @@ def write_conflicts_to_json(report: ComparisonReport, path: Path) -> None:
         "error": None,
     }
 
-    # 1) Same-ID conflicts (QB + Excel both present → true data mismatch)
+    # 1) Same-ID conflicts
     for c in report.conflicts:
         if c.source1 and c.source2:
             json_output["conflicts"].append(
@@ -214,7 +210,7 @@ def write_conflicts_to_json(report: ComparisonReport, path: Path) -> None:
                 }
             )
 
-    # 2) Items only in QuickBooks (Excel side is missing)
+    # 2) Items only in QuickBooks
     for item in report.source1_only:
         json_output["conflicts"].append(
             {
@@ -227,7 +223,7 @@ def write_conflicts_to_json(report: ComparisonReport, path: Path) -> None:
             }
         )
 
-    # 3) New items from Excel (unchanged)
+    # 3) New items from Excel
     for item in report.add_new_items:
         json_output["add_new_items"].append(
             {
@@ -247,12 +243,11 @@ def write_conflicts_to_json(report: ComparisonReport, path: Path) -> None:
 # PUSH NEW ITEMS INTO QUICKBOOKS
 # ----------------------------------------------------------------------
 def push_new_items_to_quickbooks(report: ComparisonReport) -> None:
-    """Convert Excel-only items to InventoryItem and add them to QuickBooks."""
     if not report.add_new_items:
         print("No Excel-only items to add to QuickBooks.")
         return
 
-    qb_items: List[InventoryItem] = []
+    qb_items: list[InventoryItem] = []
     for item in report.add_new_items:
         qb_items.append(
             InventoryItem(
@@ -315,16 +310,11 @@ if __name__ == "__main__":
         "C:/Users/PotharajuS/QB_Connector_Part_Python_Fall_2025/company_data.xlsx"
     )
 
-    # Read QuickBooks and Excel data
     qb_items = fetch_items_from_quickbooks_linked()
     excel_items = read_items_from_excel(excel_path)
 
-    # Compare results
     report = compare_item_lists(qb_items, excel_items)
     print_report(report)
 
-    # Export JSON output file
     write_conflicts_to_json(report, Path("conflicts_output.json"))
-
-    # Add Excel-only items to QuickBooks
     push_new_items_to_quickbooks(report)

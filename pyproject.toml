@@ -18,6 +18,13 @@ dependencies = [
     "pyinstaller (>=6.16.0,<7.0.0)"
 ]
 
+[tool.mypy]
+packages = ["quickbook_connector"]
+explicit_package_bases = true
+mypy_path = ["src"]
+
+
+
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

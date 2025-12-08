@@ -1,6 +1,6 @@
 """Entry point script for building the executable."""
 
-from src.quickbook_connector.qb_cli import main
+from quickbook_connector.qb_cli import main
 
 if __name__ == "__main__":
     main()

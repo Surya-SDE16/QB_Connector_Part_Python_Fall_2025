@@ -16,13 +16,7 @@ class InventoryItem:
 
     def __str__(self) -> str:
         """Return a readable string representation of the item."""
-        return (
-            f"InventoryItem("
-            f"id={self.record_id}, "
-            f"name={self.name}, "
-            f"price={self.price}, "
-            f"source={self.source})"
-        )
+        return f"InventoryItem(id={self.record_id}, name={self.name}, price={self.price}, source={self.source})"
 
 
 __all__ = ["InventoryItem", "SourceLiteral"]

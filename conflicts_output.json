@@ -1,15 +1,49 @@
-[
-    {
-        "id": "5",
-        "quickbooks": {
-            "id": "5",
-            "name": "Nail",
-            "price": 14.69
+{
+    "status": "success",
+    "generated_at": "2025-12-08T20:06:14.087787+00:00",
+    "same_items": 6,
+    "conflicts": [
+        {
+            "record_id": "5",
+            "qb_name": "Nail",
+            "excel_name": "S7214-09A-SQRT",
+            "qb_price": 14.69,
+            "excel_price": 0.42,
+            "reason": "data_mismatch"
         },
-        "excel": {
-            "id": "5",
-            "name": "S7214-09A-SQRT",
-            "price": 0.42
+        {
+            "record_id": "S1a2i",
+            "qb_name": "9001",
+            "excel_name": null,
+            "qb_price": 1234.56,
+            "excel_price": null,
+            "reason": "missing_in_excel"
+        },
+        {
+            "record_id": "TEST04",
+            "qb_name": "Bolt",
+            "excel_name": null,
+            "qb_price": 13.2,
+            "excel_price": null,
+            "reason": "missing_in_excel"
+        },
+        {
+            "record_id": "TEST03",
+            "qb_name": "Gadget",
+            "excel_name": null,
+            "qb_price": 10.99,
+            "excel_price": null,
+            "reason": "missing_in_excel"
+        },
+        {
+            "record_id": "9",
+            "qb_name": "hh",
+            "excel_name": null,
+            "qb_price": 99.99,
+            "excel_price": null,
+            "reason": "missing_in_excel"
         }
-    }
-]
+    ],
+    "add_new_items": [],
+    "error": null
+}
